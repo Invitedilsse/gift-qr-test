@@ -102,7 +102,7 @@ function run(){
     return show(`${ev}<h1>Location not available</h1><p>This page must be opened over https in Chrome or Safari.</p>`);
   }
   show(`${ev}<h1>Checking you are at the venue…</h1><p>Your phone will ask to use your location. Tap <b>Allow</b>.</p><ul class="st">${steps.join("")}${li("…","Location")}</ul>`);
-  navigator.geolocation.getCurrentPosition(pos=>{
+  getLoc(pos=>{
     const {latitude:la,longitude:lo,accuracy:acc}=pos.coords;
     const d=distM(la,lo,parseFloat($("vlat").value),parseFloat($("vlng").value));
     const rad=parseFloat($("rad").value)||300;
@@ -124,12 +124,28 @@ function run(){
     const denied=err.code===1;
     show(`${ev}<h1>${denied?"Allow location to see your QR":"Could not get your location"}</h1>
       <p>${denied?"We only check that you are at the venue. Tap Retry and choose <b>Allow</b>.":"Turn on location (GPS) on your phone, then tap Retry."}</p>
+      ${denied?"":`<div class="msg m-warn">Check these:<br>
+        1. Phone <b>Location</b> is ON (pull down the quick settings).<br>
+        2. <b>Android:</b> Settings → Apps → Chrome → Permissions → Location → Allow.<br>
+        <b>iPhone:</b> Settings → Privacy → Location Services → ON, and Safari Websites → While Using.<br>
+        3. Step near a window if you are deep indoors.</div>`}
+      <p class="mono">Reason: code ${err.code} · ${err.message||"no message"}</p>
       ${denied?`<div class="msg m-warn">If the phone does not ask again:<br>
         <b>Android Chrome:</b> tap the icon left of the address → Permissions → Location → Allow.<br>
         <b>iPhone:</b> Settings → Privacy → Location Services → Safari Websites → While Using.</div>`:""}
       <ul class="st">${steps.join("")}${li("✕",denied?"Location permission denied":"Location unavailable")}</ul>
       <button class="btn" onclick="run()">Retry</button>`);
-  },{enableHighAccuracy:true,timeout:15000,maximumAge:0});
+  });
+}
+
+// Try precise GPS first; if it times out or is unavailable, fall back to
+// network (Wi-Fi / mobile tower) location, which works better indoors.
+function getLoc(ok,fail){
+  navigator.geolocation.getCurrentPosition(ok,e1=>{
+    if(e1.code===1) return fail(e1);
+    navigator.geolocation.getCurrentPosition(ok,e2=>fail(e2),
+      {enableHighAccuracy:false,timeout:30000,maximumAge:120000});
+  },{enableHighAccuracy:true,timeout:12000,maximumAge:30000});
 }
 
 function showQR(card,name,steps){
@@ -147,10 +163,10 @@ function showQR(card,name,steps){
   timer=setInterval(()=>{n--;if(n<=0){n=30;draw();}tick();},1000);
 }
 
-$("here").onclick=()=>navigator.geolocation.getCurrentPosition(p=>{
+$("here").onclick=()=>getLoc(p=>{
   $("vlat").value=p.coords.latitude.toFixed(6);$("vlng").value=p.coords.longitude.toFixed(6);
   store.set("ids_vlat",$("vlat").value);store.set("ids_vlng",$("vlng").value);run();
-},()=>run(),{enableHighAccuracy:true,timeout:15000});
+},()=>run());
 $("reset").onclick=()=>{store.del("ids_bound_card");run();};
 
 run();
