@@ -1,0 +1,159 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Invite Dilsse Gift QR (test)</title>
+<meta name="robots" content="noindex,nofollow">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+<style>
+:root{--bg:#f3f4f8;--card:#fff;--fg:#1b1d2a;--mut:#646a80;--line:#dfe2ec;--acc:#3b3f9e;--ok:#1d7a4a;--okb:#e1f3e9;--bad:#b3261e;--badb:#fbe5e3;--warn:#8a5a00;--warnb:#fff2d6}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--fg);font:15px/1.5 system-ui,-apple-system,Segoe UI,Roboto,sans-serif;padding:16px}
+.wrap{max-width:440px;margin:0 auto;display:grid;gap:14px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:18px;display:grid;gap:12px}
+.main{text-align:center;justify-items:center}
+h1{font-size:1.25rem;margin:0}
+p{margin:0;color:var(--mut)}
+.ev{font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:#c98a12;font-weight:700}
+.btn{font:600 15px inherit;border:0;border-radius:10px;padding:12px 20px;background:var(--acc);color:#fff;cursor:pointer;width:100%}
+.btn.sec{background:transparent;color:var(--acc);border:1px solid var(--acc)}
+.st{list-style:none;margin:0;padding:0;display:grid;gap:6px;text-align:left;width:100%;font-size:14px}
+.st li::before{content:attr(data-i);display:inline-grid;place-items:center;width:20px;height:20px;border-radius:50%;margin-right:8px;font-size:12px;font-weight:700}
+.st li[data-i="✓"]::before{background:var(--okb);color:var(--ok)}
+.st li[data-i="✕"]::before{background:var(--badb);color:var(--bad)}
+.st li[data-i="…"]::before{background:var(--line);color:var(--mut)}
+.qr{background:#fff;padding:12px;border-radius:12px;border:1px solid var(--line)}
+.qr img,.qr canvas{display:block;width:220px;height:220px}
+.bar{height:4px;background:var(--line);border-radius:2px;overflow:hidden;width:220px}
+.bar i{display:block;height:100%;background:var(--acc)}
+.msg{border-radius:10px;padding:10px 12px;font-size:14px;width:100%;text-align:left}
+.m-bad{background:var(--badb);color:var(--bad)} .m-warn{background:var(--warnb);color:var(--warn)} .m-ok{background:var(--okb);color:var(--ok)}
+label{font-size:12px;color:var(--mut);display:grid;gap:4px}
+input,select{font:inherit;padding:9px 10px;border:1px solid var(--line);border-radius:8px;width:100%;background:#fff;color:var(--fg)}
+.row{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.mono{font:12px ui-monospace,monospace;color:var(--mut);word-break:break-all}
+summary{cursor:pointer;font-weight:600}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="card main" id="main"></div>
+
+  <details class="card" id="setup">
+    <summary>Test settings (only for this test page)</summary>
+    <label>Guest (to test "one phone = one guest")
+      <select id="guest">
+        <option value="LUN-0142|VishaalSample">VishaalSample (card LUN-0142)</option>
+        <option value="LUN-0143|JineshSample">JineshSample (card LUN-0143)</option>
+      </select></label>
+    <div class="row">
+      <label>Venue latitude<input id="vlat" inputmode="decimal"></label>
+      <label>Venue longitude<input id="vlng" inputmode="decimal"></label>
+    </div>
+    <button class="btn sec" id="here">Set venue = where I am now</button>
+    <div class="row">
+      <label>Allowed distance (m)<input id="rad" inputmode="numeric" value="300"></label>
+      <label>Event starts (today)<input id="start" type="time"></label>
+    </div>
+    <button class="btn sec" id="reset">Clear this phone's link (start fresh)</button>
+    <p class="mono" id="devline"></p>
+  </details>
+</div>
+
+<script>
+const $=id=>document.getElementById(id);
+const store={get(k){try{return localStorage.getItem(k)}catch(e){return null}},set(k,v){try{localStorage.setItem(k,v)}catch(e){}},del(k){try{localStorage.removeItem(k)}catch(e){}}};
+
+// Device id: made once, kept in this browser.
+let deviceId=store.get("ids_device_id");
+if(!deviceId){deviceId="IDS-"+(crypto.randomUUID?crypto.randomUUID():Math.random().toString(16).slice(2)).slice(0,13).toUpperCase();store.set("ids_device_id",deviceId);}
+$("devline").textContent="This phone's device id: "+deviceId;
+
+// Settings (saved on the phone so you can walk away and retry)
+const def={vlat:"13.0827",vlng:"80.2707",rad:"300",start:(()=>{const d=new Date(Date.now()-5*60000);return d.toTimeString().slice(0,5)})()};
+["vlat","vlng","rad","start"].forEach(k=>{$(k).value=store.get("ids_"+k)||def[k];$(k).onchange=()=>store.set("ids_"+k,$(k).value)});
+$("guest").value=store.get("ids_guest")||$("guest").value;
+$("guest").onchange=()=>{store.set("ids_guest",$("guest").value);run()};
+
+let timer=null;
+const ev=`<div class="ev">Test Event · Today · Venue</div>`;
+const li=(i,t)=>`<li data-i="${i}">${t}</li>`;
+function show(html){clearInterval(timer);$("main").innerHTML=html;}
+
+function distM(a,b,c,d){const R=6371000,r=x=>x*Math.PI/180;const dl=r(c-a),dn=r(d-b);
+  const h=Math.sin(dl/2)**2+Math.cos(r(a))*Math.cos(r(c))*Math.sin(dn/2)**2;return 2*R*Math.asin(Math.sqrt(h));}
+const fmt=m=>m>=1000?(m/1000).toFixed(1)+" km":Math.round(m)+" m";
+
+function run(){
+  const [card,name]=$("guest").value.split("|");
+  const steps=[li("✓","Phone recognised")];
+  // 1. Time
+  const [hh,mm]=$("start").value.split(":").map(Number);
+  const start=new Date();start.setHours(hh,mm,0,0);
+  if(Date.now()<start.getTime()){
+    const mins=Math.ceil((start-Date.now())/60000);
+    return show(`${ev}<h1>Your gift QR opens at ${$("start").value}</h1><p>Opens in ${mins} min. Open this link again at the venue.</p>
+      <ul class="st">${steps.join("")}${li("✕","Event has not started")}</ul><button class="btn" onclick="run()">Retry</button>`);
+  }
+  steps.push(li("✓","Event has started"));
+  // 2. Location
+  if(!navigator.geolocation||!window.isSecureContext){
+    return show(`${ev}<h1>Location not available</h1><p>This page must be opened over https in Chrome or Safari.</p>`);
+  }
+  show(`${ev}<h1>Checking you are at the venue…</h1><p>Your phone will ask to use your location. Tap <b>Allow</b>.</p><ul class="st">${steps.join("")}${li("…","Location")}</ul>`);
+  navigator.geolocation.getCurrentPosition(pos=>{
+    const {latitude:la,longitude:lo,accuracy:acc}=pos.coords;
+    const d=distM(la,lo,parseFloat($("vlat").value),parseFloat($("vlng").value));
+    const rad=parseFloat($("rad").value)||300;
+    if(d>rad){
+      return show(`${ev}<h1>Come to the venue to see your QR</h1><p>The gift QR opens within ${rad} m of the venue. You are about <b>${fmt(d)}</b> away (GPS accuracy ±${Math.round(acc)} m).</p>
+        <ul class="st">${steps.join("")}${li("✕","Not at venue")}</ul><button class="btn" onclick="run()">Retry</button>`);
+    }
+    steps.push(li("✓",`At the venue (${fmt(d)} away)`));
+    // 3. One phone = one guest
+    const bound=store.get("ids_bound_card");
+    if(bound&&bound.split("|")[0]!==card){
+      return show(`${ev}<h1>This phone already has a gift QR</h1><p>It was used for <b>${bound.split("|")[1]}</b>'s QR at this event. One phone can hold only one guest's QR. Please open your link on your own phone, or speak to the gift counter.</p>
+        <ul class="st">${steps.join("")}${li("✕","Phone linked to another guest")}</ul>`);
+    }
+    store.set("ids_bound_card",card+"|"+name);
+    steps.push(li("✓","Locked to this phone"));
+    showQR(card,name,steps);
+  },err=>{
+    const denied=err.code===1;
+    show(`${ev}<h1>${denied?"Allow location to see your QR":"Could not get your location"}</h1>
+      <p>${denied?"We only check that you are at the venue. Tap Retry and choose <b>Allow</b>.":"Turn on location (GPS) on your phone, then tap Retry."}</p>
+      ${denied?`<div class="msg m-warn">If the phone does not ask again:<br>
+        <b>Android Chrome:</b> tap the icon left of the address → Permissions → Location → Allow.<br>
+        <b>iPhone:</b> Settings → Privacy → Location Services → Safari Websites → While Using.</div>`:""}
+      <ul class="st">${steps.join("")}${li("✕",denied?"Location permission denied":"Location unavailable")}</ul>
+      <button class="btn" onclick="run()">Retry</button>`);
+  },{enableHighAccuracy:true,timeout:15000,maximumAge:0});
+}
+
+function showQR(card,name,steps){
+  show(`${ev}<h1>${name}</h1><p>Show this at the gift counter</p>
+    <div class="qr"><div id="qr"></div></div>
+    <div class="mono" id="left"></div><div class="bar"><i id="b"></i></div>
+    <ul class="st">${steps.join("")}</ul>
+    <p style="font-size:13px">Screenshots will not work. Keep this screen open.</p>`);
+  let n=30;
+  const draw=()=>{const t=Math.floor(Date.now()/1000);const el=$("qr");el.innerHTML="";
+    new QRCode(el,{text:JSON.stringify({card,device:deviceId,iat:t,exp:t+30,test:true}),width:220,height:220});};
+  draw();
+  const tick=()=>{$("left").textContent=`New code in ${n} s`;$("b").style.width=(n/30*100)+"%";};
+  tick();
+  timer=setInterval(()=>{n--;if(n<=0){n=30;draw();}tick();},1000);
+}
+
+$("here").onclick=()=>navigator.geolocation.getCurrentPosition(p=>{
+  $("vlat").value=p.coords.latitude.toFixed(6);$("vlng").value=p.coords.longitude.toFixed(6);
+  store.set("ids_vlat",$("vlat").value);store.set("ids_vlng",$("vlng").value);run();
+},()=>run(),{enableHighAccuracy:true,timeout:15000});
+$("reset").onclick=()=>{store.del("ids_bound_card");run();};
+
+run();
+</script>
+</body>
+</html>
